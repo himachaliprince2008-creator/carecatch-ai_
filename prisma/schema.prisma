@@ -1,0 +1,305 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum VerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum DataSourceType {
+  GOVERNMENT
+  HOSPITAL
+  INSURER
+  PARTNER
+  DEMO
+}
+
+enum HospitalType {
+  HOSPITAL
+  CLINIC
+  SPECIALTY_CENTER
+  AMBULATORY_CENTER
+  OTHER
+}
+
+model User {
+  id            String          @id @default(cuid())
+  email         String          @unique
+  displayName   String?
+  role          UserRole        @default(USER)
+  savedHospitals SavedHospital[]
+  searchHistory SearchHistory[]
+  reviews       HospitalReview[]
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@index([role])
+}
+
+model Hospital {
+  id                    String                 @id @default(cuid())
+  name                  String
+  slug                  String                 @unique
+  description           String?
+  addressLine1          String?
+  city                  String
+  state                 String?
+  postalCode            String?
+  country               String                 @default("US")
+  hospitalType          HospitalType           @default(HOSPITAL)
+  hasIcu                Boolean                @default(false)
+  hasEmergency          Boolean                @default(false)
+  acceptsPmJay           Boolean                @default(false)
+  hasNabhAccreditation  Boolean                @default(false)
+  rating                Decimal?               @db.Decimal(3, 2)
+  reviewCount           Int                    @default(0)
+  latitude              Decimal?               @db.Decimal(9, 6)
+  longitude             Decimal?               @db.Decimal(9, 6)
+  // Future PostGIS migration can add a geography(Point, 4326) column here.
+
+  phone                 String?
+  websiteUrl            String?
+  isSynthetic           Boolean                @default(false)
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  specializations       HospitalSpecialization[]
+  facilities            HospitalFacility[]
+  treatmentCosts        TreatmentCost[]
+  reviews               HospitalReview[]
+  verification         HospitalVerification?
+  savedBy               SavedHospital[]
+
+  hospitalDiseaseMetrics HospitalDiseaseMetric[]
+  @@index([latitude, longitude])
+  @@index([isSynthetic])
+  @@index([hospitalType, city])
+  @@index([hasIcu, hasEmergency, acceptsPmJay, hasNabhAccreditation])
+}
+
+model Disease {
+  id              String              @id @default(cuid())
+  name            String
+  slug            String              @unique
+  description     String?
+  isSynthetic     Boolean             @default(false)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  specializations HospitalSpecialization[]
+  treatmentCosts  TreatmentCost[]
+  outcomes        DiseaseOutcome[]
+
+  hospitalDiseaseMetrics HospitalDiseaseMetric[]
+  @@index([name])
+}
+
+model HospitalSpecialization {
+  id          String   @id @default(cuid())
+  hospitalId  String
+  diseaseId   String
+  specialty   String
+  sourceId    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  hospital    Hospital @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  disease     Disease  @relation(fields: [diseaseId], references: [id], onDelete: Cascade)
+  source      DataSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+
+  @@unique([hospitalId, diseaseId, specialty])
+  @@index([specialty])
+  @@index([diseaseId])
+}
+
+model HospitalFacility {
+  id          String   @id @default(cuid())
+  hospitalId  String
+  name        String
+  description String?
+  sourceId    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  hospital    Hospital @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  source      DataSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+
+  @@unique([hospitalId, name])
+  @@index([name])
+}
+
+model TreatmentCost {
+  id            String   @id @default(cuid())
+  hospitalId    String
+  diseaseId     String
+  treatmentId   String
+  currency      String   @default("USD")
+  minAmount     Decimal? @db.Decimal(12, 2)
+  maxAmount     Decimal? @db.Decimal(12, 2)
+  notes         String?
+  sourceId      String?
+  isSynthetic   Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  hospital      Hospital @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  disease       Disease  @relation(fields: [diseaseId], references: [id], onDelete: Cascade)
+  treatment     Treatment @relation(fields: [treatmentId], references: [id], onDelete: Cascade)
+  source        DataSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+
+  @@index([hospitalId, diseaseId, treatmentId])
+  @@index([currency])
+}
+
+// Add inverse relations
+
+// In Hospital model (around line 80)
+// Add: hospitalDiseaseMetrics HospitalDiseaseMetric[]
+
+// In Disease model (around line 100)
+// Add: hospitalDiseaseMetrics HospitalDiseaseMetric[]
+
+model DiseaseOutcome {
+  id          String   @id @default(cuid())
+  diseaseId   String
+  label       String
+  description String?
+  value       String?
+  reportingPeriodStart DateTime?
+  reportingPeriodEnd   DateTime?
+  sourceId    String?
+  isSynthetic Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  disease     Disease  @relation(fields: [diseaseId], references: [id], onDelete: Cascade)
+  source      DataSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+
+  @@index([diseaseId])
+}
+
+model HospitalReview {
+  id          String   @id @default(cuid())
+  hospitalId  String
+  userId      String
+  rating      Int
+  title       String?
+  body        String?
+  isSynthetic Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  hospital    Hospital @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([hospitalId, rating])
+  @@index([userId])
+}
+
+model HospitalVerification {
+  id             String             @id @default(cuid())
+  hospitalId     String             @unique
+  status         VerificationStatus @default(PENDING)
+  verifiedAt     DateTime?
+  verifiedBy     String?
+  notes          String?
+  sourceId       String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  hospital       Hospital           @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  source         DataSource?        @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+}
+
+model SavedHospital {
+  id         String   @id @default(cuid())
+  userId     String
+  hospitalId String
+  note       String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hospital   Hospital @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, hospitalId])
+  @@index([userId, createdAt])
+}
+
+model SearchHistory {
+  id             String   @id @default(cuid())
+  userId         String
+  specialty      String?
+  locationText   String?
+  latitude       Decimal? @db.Decimal(9, 6)
+  longitude      Decimal? @db.Decimal(9, 6)
+  budgetCurrency String?
+  budgetMax      Decimal? @db.Decimal(12, 2)
+  requirements   Json?
+  createdAt      DateTime @default(now())
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([specialty])
+  @@index([latitude, longitude])
+}
+
+model DataSource {
+  id              String              @id @default(cuid())
+  name            String
+  type            DataSourceType
+  url             String?
+  publisher       String?
+  retrievedAt     DateTime?
+  isSynthetic     Boolean             @default(false)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  specializations HospitalSpecialization[]
+  facilities      HospitalFacility[]
+  treatmentCosts  TreatmentCost[]
+  outcomes        DiseaseOutcome[]
+  verifications   HospitalVerification[]
+
+  @@index([type])
+  @@index([isSynthetic])
+  hospitalDiseaseMetrics HospitalDiseaseMetric[]
+}
+
+model Treatment {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  isSynthetic Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  treatmentCosts TreatmentCost[]
+  hospitalDiseaseMetrics HospitalDiseaseMetric[]
+}
+
+model HospitalDiseaseMetric {
+  id          String   @id @default(cuid())
+  hospitalId  String
+  diseaseId   String
+  treatmentId String
+  reportingPeriod String?
+  totalReportedCases Int?
+  patientsTreated Int?
+  successfulReportedOutcomes Int?
+  sourceId    String?
+  verificationStatus VerificationStatus
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  hospital    Hospital @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  disease     Disease @relation(fields: [diseaseId], references: [id], onDelete: Cascade)
+  treatment   Treatment @relation(fields: [treatmentId], references: [id], onDelete: Cascade)
+  source      DataSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+
+  @@index([hospitalId, diseaseId, treatmentId])
+}
+
